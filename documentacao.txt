@@ -1,0 +1,139 @@
+RADAR FISCAL - DOCUMENTAÇÃO
+============================
+
+O QUE É
+-------
+O Radar Fiscal é uma ferramenta com duas partes:
+
+1. Um robô (backend/radar_fiscal.py) que automatiza o Sistema de Analise
+   (MGApps) para exportar os dados de Importação Fiscal.
+2. Um portal web (index.html) que lê esses dados e mostra um dashboard
+   com filtros, cards de resumo e uma tabela detalhada por empresa.
+
+O objetivo é acompanhar, por empresa, o status do fechamento fiscal e se
+a documentação (comentário da Operação sobre a movimentação) já foi
+recebida ou ainda está pendente.
+
+
+COMO ATUALIZAR A BASE (rodar o robô)
+-------------------------------------
+O robô só funciona numa máquina Windows com o MGApps instalado e logado
+na rede da empresa (não roda em nuvem/servidor).
+
+Passo a passo:
+1. Preencha o arquivo .env na raiz do projeto com usuário e senha do
+   Sistema de Analise (veja o modelo em .env.example):
+       USUARIO=seu.usuario
+       SENHA=sua.senha
+2. Instale as dependências (uma vez só):
+       pip install -r requirements.txt
+3. Rode o robô:
+       python backend/radar_fiscal.py
+
+O que o robô faz sozinho, sem precisar mexer no mouse/teclado (com
+exceção de um único clique inicial pra abrir o Sistema de Analise):
+- Abre o MGApps e faz login no Sistema de Analise.
+- Exporta o relatório do Radar Fiscal (Importação Fiscal > Relatório >
+  Radar Fiscal).
+- Exporta a Planilha de Mercados (Análise Fechamento Escrita Fiscal >
+  Controle de Status, filtrando SP + GOIAS).
+- Junta as duas planilhas (mesma lógica de um Power Query de referência
+  guardado em "Resumo Radar Fiscal.xlsx" - não apague esse arquivo).
+- Gera os arquivos em data/radar_fiscal/:
+    resumo.xlsx               -> as duas bases já limpas e unidas
+    radar_fiscal_dados.json   -> versão enxuta que o portal usa
+    status.json               -> data/hora da última atualização
+
+Isso leva alguns minutos. Ao final, os dados do portal já estarão
+atualizados - só falta abrir/atualizar a página do portal.
+
+
+COMO ABRIR O PORTAL
+--------------------
+O portal é 100% estático (HTML/CSS/JS), mas como ele carrega os dados
+via fetch, não pode ser aberto direto no navegador (arquivo local trava
+por causa de CORS). É preciso um servidor simples:
+
+    cd Radar-Fiscal
+    python -m http.server 8791
+
+E depois acessar no navegador:
+
+    http://localhost:8791
+
+Se a base já tiver sido atualizada antes, basta dar F5 na página pra
+carregar os dados mais recentes (não precisa reiniciar o servidor).
+
+
+O QUE CADA PARTE DA TELA MOSTRA
+---------------------------------
+
+Cabeçalho (barra vermelha no topo)
+  Nome do sistema, data/hora da última atualização e o botão para
+  alternar entre tema claro e escuro.
+
+Filtro de Unidade
+  Botões soltos logo abaixo do cabeçalho (GOIAS, RJ, SANTOS, SP...).
+  Clicar filtra toda a tela (cards, ranking e os dois filtros abaixo)
+  para aquela unidade. Clicar de novo remove o filtro.
+
+Filtros
+  Busca por nome/grupo, Segmento, Tributação, Departamento, Status,
+  Documentação e Gerente de Contas. Afetam os cards e o ranking (não a
+  tabela, que tem seu próprio filtro mais abaixo).
+
+Cards "Por Tributação" / "Por Departamento"
+  Mostram, para cada categoria (ex.: Simples Nacional, Lucro Real...),
+  quantas empresas estão com Documentação Recebida e quantas estão
+  Pendente, com o detalhamento por Status (Fechado, Bloqueado,
+  Simulando, Com o GC, Não importado). Os cards são clicáveis: clicar
+  aplica o mesmo filtro dos campos acima.
+
+Pendências por Gerente de Contas
+  Ranking dos gerentes com mais empresas com documentação pendente.
+  Também clicável para filtrar.
+
+Filtros da tabela
+  Mesmos campos de filtro de cima, mas só afetam a tabela abaixo -
+  são independentes dos filtros dos cards/ranking.
+
+Tabela
+  Uma linha por empresa, com: Nome (com o ID na frente, ex. "1004 -
+  Kacula..."), Grupo, Unidade, Segmento, Gerente de Contas, Depto.
+  Fiscal, Regime, Status e Documentação (Recebida/Pendente).
+
+
+ESTRUTURA DE ARQUIVOS
+------------------------
+Radar-Fiscal/
+  index.html                    -> a página do portal
+  static/
+    script.js                   -> toda a lógica do portal (filtros,
+                                    cards, tabela, tema)
+    style.css                   -> visual do portal
+    logo.png
+  data/radar_fiscal/            -> gerado pelo robô (não editar à mão)
+    radar_fiscal.xlsx           -> exportação bruta do Radar Fiscal
+    planilha_mercados.xlsx      -> exportação bruta da Planilha de Mercados
+    resumo.xlsx                 -> as duas juntas e tratadas
+    radar_fiscal_dados.json     -> o que o portal realmente lê
+    status.json                 -> data da última atualização
+  backend/
+    radar_fiscal.py             -> o robô
+  "Resumo Radar Fiscal.xlsx"    -> planilha de referência com a regra de
+                                    negócio da junção (Power Query) - não
+                                    apagar
+  .env                          -> usuário/senha do Sistema de Analise
+                                    (não versionar, não compartilhar)
+
+
+OBSERVAÇÕES
+-------------
+- O robô não pode ser executado em nenhum serviço de nuvem (Render
+  etc.), pois depende do MGApps instalado localmente e da rede interna
+  da empresa.
+- Se quiser publicar o portal em algum lugar acessível pela equipe
+  (ex.: GitHub Pages), o robô continua precisando rodar localmente numa
+  máquina com MGApps; os arquivos gerados em data/radar_fiscal/
+  precisam ser enviados manualmente (ou via commit/push) para a
+  hospedagem refletir os dados atualizados.

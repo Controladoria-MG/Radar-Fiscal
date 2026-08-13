@@ -1,0 +1,6 @@
+pandas
+openpyxl
+xlsxwriter
+pywinauto
+pywin32
+python-dotenv

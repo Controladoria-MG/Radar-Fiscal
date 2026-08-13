@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.log
+.DS_Store
+venv/
+.venv/
+data/radar_fiscal/*.xlsx
+Resumo Radar Fiscal.xlsx
