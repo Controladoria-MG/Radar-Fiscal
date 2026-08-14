@@ -24,6 +24,8 @@
   --status-critical: var(--vermelho-profundo);
   --status-neutral: var(--cinza-muted);
   --status-neutral-bg: #ececea;
+
+  --borda-card: rgba(0, 0, 0, 0.3);
 }
 
 /* ── Tema escuro ── */
@@ -39,6 +41,8 @@ body.tema-escuro {
   --bg-card-alt: #242424;
   --bg-hover-row: #2a1515;
   --status-neutral-bg: #2d2d2d;
+
+  --borda-card: rgba(255, 255, 255, 0.24);
 }
 
 * {
@@ -329,7 +333,7 @@ main {
   font-weight: 600;
   padding: 7px 14px;
   border: none;
-  border-radius: 6px;
+  border-radius: 156px;
   background: transparent;
   color: var(--cinza-texto);
   cursor: pointer;
@@ -372,11 +376,11 @@ main {
 
 .quebra-card {
   background-color: var(--bg-card-alt);
-  border: 1px solid var(--borda);
+  border: 1px solid var(--borda-card);
   border-bottom: 5px solid var(--mg-vermelho);
   border-radius: 6px;
   padding: 24px 24px 0 24px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 8px 20px rgba(0, 0, 0, 0.16);
   transition: box-shadow 0.2s ease, transform 0.2s ease;
   cursor: pointer;
   overflow: hidden;
@@ -613,8 +617,8 @@ main {
   border-radius: 6px;
 }
 
-.doc-grupo.recebida .doc-cabecalho { background: var(--status-good); }
-.doc-grupo.pendente .doc-cabecalho { background: var(--status-warning); }
+.doc-grupo.recebida .doc-cabecalho,
+.doc-grupo.pendente .doc-cabecalho { background: var(--mg-vermelho); }
 
 .doc-grupo.recebida .doc-cabecalho .doc-rotulo,
 .doc-grupo.recebida .doc-cabecalho .doc-valores b,
@@ -654,6 +658,9 @@ main {
 }
 
 .doc-valores b {
+  display: inline-block;
+  min-width: 3em;
+  text-align: right;
   font-size: 0.92rem;
   font-weight: 700;
   color: var(--cinza-escuro);
@@ -661,6 +668,9 @@ main {
 }
 
 .doc-pct {
+  display: inline-block;
+  min-width: 3.6em;
+  text-align: right;
   font-size: 0.76rem;
   font-weight: 600;
   color: var(--cinza-texto);
@@ -699,6 +709,9 @@ main {
 }
 
 .status-valores b {
+  display: inline-block;
+  min-width: 2.6em;
+  text-align: right;
   font-size: 0.94rem;
   font-weight: 700;
   color: var(--cinza-escuro);
@@ -706,6 +719,9 @@ main {
 }
 
 .status-pct {
+  display: inline-block;
+  min-width: 3.4em;
+  text-align: right;
   font-size: 0.78rem;
   color: var(--cinza-texto);
 }

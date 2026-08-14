@@ -432,7 +432,7 @@ function carregarStatus() {
     .then((r) => r.json())
     .then((s) => {
       const data = new Date(s.ultima_execucao);
-      const texto = `Atualizado em ${data.toLocaleString("pt-BR")} — ${s.registros.toLocaleString("pt-BR")} registros`;
+      const texto = `Atualizado em ${data.toLocaleString("pt-BR")}`;
       el.status.textContent = texto;
       el.statusRodape.textContent = texto;
     })
