@@ -89,6 +89,13 @@ Cards "Por Tributação" / "Por Departamento"
   Simulando, Com o GC, Não importado). Os cards são clicáveis: clicar
   aplica o mesmo filtro dos campos acima.
 
+Evolução por dia
+  Gráfico de barra empilhada com quantas empresas foram confirmadas em cada dia
+  (Data de Confirmação, já registrada na planilha por empresa), separado
+  por Documentação Recebida/Pendente. É afetado pelos filtros de cima,
+  igual aos cards/ranking. Só aparece quando há pelo menos dois dias
+  diferentes com Data de Confirmação no filtro atual.
+
 Pendências por Gerente de Contas
   Ranking dos gerentes com mais empresas com documentação pendente.
   Também clicável para filtrar.

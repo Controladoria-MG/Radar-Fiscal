@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import time
 from datetime import datetime
@@ -25,6 +26,14 @@ ARQUIVO_STATUS = PASTA_DESTINO / "status.json"
 ARQUIVO_DADOS_PORTAL = PASTA_DESTINO / "radar_fiscal_dados.json"
 
 PASTA_DOWNLOADS = Path.home() / "Downloads"
+
+# Cópia de rede que alimenta a Power Query de "Resumo Radar Fiscal.xlsx"
+# (arquivo do usuário fora deste repo, em Y:) — ele referencia essas duas
+# planilhas diretamente e as atualiza sozinho ao ser aberto/atualizado, então
+# só precisamos manter os arquivos brutos aqui em dia. Ver [[project_radar_fiscal]].
+PASTA_REDE = Path(r"Y:\GERÊNCIA\Gerencia Operacional\CTR\Juan\Controle de Fechamentos")
+ARQUIVO_REDE_RADAR = PASTA_REDE / "Radar Fiscal" / "radar_fiscal.xlsx"
+ARQUIVO_REDE_MERCADOS = PASTA_REDE / "Planilha de Mercados" / "planilha_mercados.xlsx"
 
 UNIDADES_MERCADOS = {"SP", "GOIAS"}
 
@@ -80,7 +89,7 @@ COLUNAS_PORTAL = [
     "IdCorporativo", "Nome", "Grupo", "Unidade", "Segmento", "Gerente de Contas",
     "Status", "DeptoFiscal", "RegimeApuracao", "EmpSemMovto",
     "Documentação", "DiasSemAtualizacao", "Planilha de Mercados.AÇÃO GERENTE",
-    "Planilha de Mercados.DESC. REMESSAS",
+    "Planilha de Mercados.DESC. REMESSAS", "DataConfirmacao",
 ]
 
 USUARIO = os.getenv("USUARIO", "")
@@ -381,6 +390,19 @@ def _exportar_excel(radar, caminho_destino: Path, log=None):
     raise RuntimeError(f"Exportação não gerou o arquivo em {TIMEOUT_EXPORTACAO}s.")
 
 
+def _copiar_para_rede(origem: Path, destino: Path, log=None):
+    """Atualiza a cópia de rede (Y:) que a Power Query de 'Resumo Radar
+    Fiscal.xlsx' lê. Não derruba a execução se a rede estiver indisponível —
+    só avisa, já que o resto do pipeline (resumo.xlsx + portal) não depende
+    disso."""
+    try:
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origem, destino)
+        _log(f"Cópia de rede atualizada: {destino}", log)
+    except OSError as e:
+        _log(f"AVISO: não foi possível atualizar a cópia de rede {destino} ({e}).", log)
+
+
 def _fechar_janela_se_existir(titulo: str, exato: bool = True, timeout: float = 2):
     try:
         handle = _janela_por_titulo(titulo, exato=exato, timeout=timeout)
@@ -548,12 +570,19 @@ def _gerar_json_portal(df: pd.DataFrame) -> None:
         "Planilha de Mercados.DESC. REMESSAS": "DescRemessas",
     })
     registros = subset.to_dict(orient="records")
-    # pandas usa NaN para valores ausentes mesmo em colunas de texto — NaN não é
-    # JSON válido (JS trava no fetch), então troca por None (vira null) aqui.
-    registros = [
-        {chave: (None if isinstance(valor, float) and pd.isna(valor) else valor) for chave, valor in reg.items()}
-        for reg in registros
-    ]
+
+    def _serializar(valor):
+        # pandas usa NaN/NaT para valores ausentes mesmo em colunas de texto —
+        # nenhum dos dois é JSON válido (JS trava no fetch), então vira None
+        # (null) aqui. Timestamp (ex.: DataConfirmacao) também não é
+        # serializável direto — vira string ISO 8601.
+        if pd.isna(valor):
+            return None
+        if isinstance(valor, pd.Timestamp):
+            return valor.isoformat()
+        return valor
+
+    registros = [{chave: _serializar(valor) for chave, valor in reg.items()} for reg in registros]
     ARQUIVO_DADOS_PORTAL.write_text(
         json.dumps(registros, ensure_ascii=False, indent=None),
         encoding="utf-8",
@@ -571,6 +600,7 @@ def executar(log=None):
     radar = _abrir_radar_fiscal(fiscal, log)
     _filtrar(radar, log)
     _exportar_excel(radar, ARQUIVO_SAIDA, log)
+    _copiar_para_rede(ARQUIVO_SAIDA, ARQUIVO_REDE_RADAR, log)
     _fechar_janela_se_existir("Radar")
 
     mercados = _abrir_controle_status(fiscal, log)
@@ -578,6 +608,7 @@ def executar(log=None):
     _marcar_unidades(mercados, UNIDADES_MERCADOS, log)
     _filtrar_mercados(mercados, log)
     _exportar_planilha_mercados(mercados, ARQUIVO_MERCADOS, log)
+    _copiar_para_rede(ARQUIVO_MERCADOS, ARQUIVO_REDE_MERCADOS, log)
 
     _fechar_sistema_analise(log)
 

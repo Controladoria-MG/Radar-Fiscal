@@ -838,6 +838,43 @@ tbody tr:hover {
   background: var(--bg-hover-row);
 }
 
+/* Evolução por dia */
+
+.evolucao-subtitulo {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: var(--cinza-muted);
+}
+
+.evolucao-vazio {
+  color: var(--cinza-muted);
+  font-size: 0.85rem;
+  margin: 8px 0 0;
+}
+
+.evolucao-grafico {
+  margin-top: 4px;
+}
+
+.evolucao-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.evolucao-grade {
+  stroke: var(--borda);
+  stroke-width: 1;
+}
+
+.evolucao-eixo-texto {
+  fill: var(--cinza-muted);
+  font-size: 10px;
+}
+
+.evolucao-barra.recebida { fill: var(--status-good); }
+.evolucao-barra.pendente { fill: var(--status-warning); }
+
 .paginacao {
   padding: 12px 20px;
   border-top: 1px solid var(--borda);

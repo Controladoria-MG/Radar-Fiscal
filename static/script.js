@@ -23,6 +23,7 @@ const el = {
   quebraConteudo: document.getElementById("quebra-conteudo"),
   quebraAbas: document.querySelectorAll(".quebra-aba"),
   rankingGerentes: document.getElementById("ranking-gerentes"),
+  evolucaoGrafico: document.getElementById("evolucao-grafico"),
   // Filtro independente, só da tabela — não afeta KPIs/cards/ranking
   tBusca: document.getElementById("t-busca"),
   tUnidade: document.getElementById("t-unidade"),
@@ -81,6 +82,7 @@ function aplicarFiltros() {
 
   renderizarQuebras();
   renderizarRankingGerentes();
+  renderizarEvolucao();
   atualizarUnidadeTopoAtiva();
 }
 
@@ -110,18 +112,34 @@ function aplicarFiltroTabela() {
 }
 
 const ORDEM_DOCUMENTACAO = ["Documentação Recebida", "Documentação Pendente"];
+// Ordem fixa dos status em todo card — junto com ORDEM_DOCUMENTACAO acima,
+// garante que todo card renderize o mesmo número de linhas (mesmo tamanho),
+// com contagem 0 pros status/documentação que não ocorrem naquele grupo.
+const STATUS_ORDEM = ["Fechado", "Bloqueado", "Simulando", "Com o GC", "Não importado"];
+
+function criarContadorStatus() {
+  const status = new Map();
+  STATUS_ORDEM.forEach((s) => status.set(s, 0));
+  return { total: 0, status };
+}
+
+function criarContadorDocs() {
+  const docs = new Map();
+  ORDEM_DOCUMENTACAO.forEach((doc) => docs.set(doc, criarContadorStatus()));
+  return docs;
+}
 
 function contarDetalhado(chave) {
   const grupos = new Map();
   filtrados.forEach((r) => {
     const valor = r[chave];
     if (!valor) return;
-    if (!grupos.has(valor)) grupos.set(valor, { total: 0, docs: new Map() });
+    if (!grupos.has(valor)) grupos.set(valor, { total: 0, docs: criarContadorDocs() });
     const g = grupos.get(valor);
     g.total++;
 
     const doc = r["Documentação"] || "Sem documentação";
-    if (!g.docs.has(doc)) g.docs.set(doc, { total: 0, status: new Map() });
+    if (!g.docs.has(doc)) g.docs.set(doc, criarContadorStatus());
     const d = g.docs.get(doc);
     d.total++;
 
@@ -160,7 +178,9 @@ function ativarSelecaoVisual(elementos) {
 function renderizarDocGrupo(docNome, d, totalCategoria) {
   const classe = docNome === "Documentação Recebida" ? "recebida" : "pendente";
   const pctDoc = totalCategoria ? (d.total / totalCategoria) * 100 : 0;
-  const statusOrdenado = [...d.status.entries()].sort((a, b) => b[1] - a[1]);
+  // Ordem fixa (não por contagem) pra todo card mostrar as mesmas linhas na
+  // mesma posição — mesmo as zeradas.
+  const statusOrdenado = STATUS_ORDEM.map((s) => [s, d.status.get(s) || 0]);
 
   const linhasStatus = statusOrdenado
     .map(([status, count]) => {
@@ -192,7 +212,7 @@ function renderizarQuebraGrupo(container, chave, filtroEl) {
     .map(([nome, g]) => {
       const ativo = nome === selecionado ? " selecionado" : "";
       const docsHtml = ORDEM_DOCUMENTACAO
-        .map((docNome) => (g.docs.has(docNome) ? renderizarDocGrupo(docNome, g.docs.get(docNome), g.total) : ""))
+        .map((docNome) => renderizarDocGrupo(docNome, g.docs.get(docNome), g.total))
         .join("");
 
       return `
@@ -220,12 +240,12 @@ function contarDetalhadoComSubgrupo(chavePrincipal, chaveSecundaria) {
     g.total++;
 
     const valor2 = r[chaveSecundaria] || "Sem tributação";
-    if (!g.sub.has(valor2)) g.sub.set(valor2, { total: 0, docs: new Map() });
+    if (!g.sub.has(valor2)) g.sub.set(valor2, { total: 0, docs: criarContadorDocs() });
     const s = g.sub.get(valor2);
     s.total++;
 
     const doc = r["Documentação"] || "Sem documentação";
-    if (!s.docs.has(doc)) s.docs.set(doc, { total: 0, status: new Map() });
+    if (!s.docs.has(doc)) s.docs.set(doc, criarContadorStatus());
     const d = s.docs.get(doc);
     d.total++;
 
@@ -237,7 +257,7 @@ function contarDetalhadoComSubgrupo(chavePrincipal, chaveSecundaria) {
 
 function renderizarRegimeCard(nome, s) {
   const docsHtml = ORDEM_DOCUMENTACAO
-    .map((docNome) => (s.docs.has(docNome) ? renderizarDocGrupo(docNome, s.docs.get(docNome), s.total) : ""))
+    .map((docNome) => renderizarDocGrupo(docNome, s.docs.get(docNome), s.total))
     .join("");
 
   return `
@@ -440,6 +460,103 @@ function carregarStatus() {
       el.status.textContent = "Nenhuma execução registrada ainda.";
       el.statusRodape.textContent = "Nenhuma execução registrada ainda.";
     });
+}
+
+function formatarDataCurta(iso) {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+// Quantas empresas tiveram o fechamento confirmado (DataConfirmacao) em cada
+// dia, separado por Documentação Recebida/Pendente — vem direto da planilha
+// (cada linha já tem sua própria data), não de um histórico acumulado por
+// execução do robô. Respeita os filtros ativos (mesmo conjunto `filtrados`
+// dos cards/ranking).
+function contarConfirmacoesPorDia() {
+  const dias = new Map();
+  filtrados.forEach((r) => {
+    if (!r.DataConfirmacao) return;
+    const dia = r.DataConfirmacao.slice(0, 10);
+    if (!dias.has(dia)) dias.set(dia, { data: dia, recebida: 0, pendente: 0 });
+    const d = dias.get(dia);
+    if (r["Documentação"] === "Documentação Recebida") d.recebida++;
+    else d.pendente++;
+  });
+  return [...dias.values()].sort((a, b) => a.data.localeCompare(b.data));
+}
+
+// Barra empilhada por dia (SVG desenhado à mão, sem lib externa — mesmo
+// padrão do resto do portal) com quantas confirmações por dia foram feitas
+// com Documentação Recebida vs Pendente. Barra (não linha) porque é uma
+// contagem discreta por dia, não um total acumulado — a linha insinuava uma
+// continuidade entre os pontos que não existe de verdade.
+function renderizarEvolucao() {
+  const container = el.evolucaoGrafico;
+  if (!container) return;
+
+  const historico = contarConfirmacoesPorDia();
+  if (historico.length < 2) {
+    container.innerHTML = `<p class="evolucao-vazio">Sem dias suficientes com Data de Confirmação no filtro atual para montar o gráfico.</p>`;
+    return;
+  }
+
+  const largura = 900, altura = 260;
+  const margemEsq = 46, margemDir = 16, margemTopo = 16, margemBaixo = 34;
+  const areaLargura = largura - margemEsq - margemDir;
+  const areaAltura = altura - margemTopo - margemBaixo;
+
+  const maiorTotal = Math.max(1, ...historico.map((h) => h.recebida + h.pendente));
+  const passoX = areaLargura / historico.length;
+  const larguraBarra = passoX * 0.6;
+
+  const coordXCentro = (i) => margemEsq + i * passoX + passoX / 2;
+  const alturaBarra = (valor) => (valor / maiorTotal) * areaAltura;
+  const coordY = (valor) => margemTopo + areaAltura - (valor / maiorTotal) * areaAltura;
+
+  const barras = historico
+    .map((h, i) => {
+      const x = coordXCentro(i) - larguraBarra / 2;
+      const yBase = margemTopo + areaAltura;
+      const altRecebida = alturaBarra(h.recebida);
+      const altPendente = alturaBarra(h.pendente);
+      const yRecebida = yBase - altRecebida;
+      const yPendente = yRecebida - altPendente;
+      return `
+        <rect x="${x}" y="${yRecebida}" width="${larguraBarra}" height="${altRecebida}" class="evolucao-barra recebida">
+          <title>${formatarDataCurta(h.data)} — Documentação Recebida: ${h.recebida.toLocaleString("pt-BR")}</title>
+        </rect>
+        <rect x="${x}" y="${yPendente}" width="${larguraBarra}" height="${altPendente}" class="evolucao-barra pendente">
+          <title>${formatarDataCurta(h.data)} — Documentação Pendente: ${h.pendente.toLocaleString("pt-BR")}</title>
+        </rect>
+      `;
+    })
+    .join("");
+
+  const NUM_GRADES = 4;
+  const grades = Array.from({ length: NUM_GRADES + 1 }, (_, i) => {
+    const valor = Math.round((maiorTotal / NUM_GRADES) * i);
+    const y = coordY(valor);
+    return `
+      <line x1="${margemEsq}" y1="${y}" x2="${largura - margemDir}" y2="${y}" class="evolucao-grade" />
+      <text x="${margemEsq - 8}" y="${y + 4}" text-anchor="end" class="evolucao-eixo-texto">${valor.toLocaleString("pt-BR")}</text>
+    `;
+  }).join("");
+
+  // Evita amontoar rótulo de data quando há muitos dias no histórico.
+  const passoRotulo = Math.max(1, Math.ceil(historico.length / 8));
+  const rotulosX = historico
+    .map((h, i) => {
+      if (i % passoRotulo !== 0 && i !== historico.length - 1) return "";
+      return `<text x="${coordXCentro(i)}" y="${altura - margemBaixo + 18}" text-anchor="middle" class="evolucao-eixo-texto">${formatarDataCurta(h.data)}</text>`;
+    })
+    .join("");
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${largura} ${altura}" class="evolucao-svg" role="img" aria-label="Confirmações por dia, Documentação Recebida vs Pendente">
+      ${grades}
+      ${barras}
+      ${rotulosX}
+    </svg>
+  `;
 }
 
 const UNIDADES_EXCLUIDAS = ["MG EXPRESS"];
