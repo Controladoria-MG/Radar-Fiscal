@@ -6,10 +6,11 @@ const el = {
   status: document.getElementById("status-execucao"),
   statusRodape: document.getElementById("status-execucao-rodape"),
   busca: document.getElementById("f-busca"),
-  // Não é um <select> — é um estado simples imitando a mesma interface
-  // (.value), pra reaproveitar filtrarConjunto/ativarFiltroClicavel sem
-  // mudança. Os botões ficam soltos no topo da página (unidadeTopoLista).
-  unidade: { value: "" },
+  // Não é um <select> — é um estado simples com um Set de valores (permite
+  // marcar mais de uma unidade ao mesmo tempo). filtrarConjunto trata esse
+  // campo de forma diferente do resto (ver `.valores` lá). Os botões ficam
+  // soltos no topo da página (unidadeTopoLista).
+  unidade: { valores: new Set() },
   unidadeTopoLista: document.getElementById("unidade-topo-lista"),
   segmento: document.getElementById("f-segmento"),
   regime: document.getElementById("f-regime"),
@@ -21,7 +22,7 @@ const el = {
   corpo: document.getElementById("tabela-corpo"),
   contagem: document.getElementById("contagem"),
   quebraConteudo: document.getElementById("quebra-conteudo"),
-  quebraAbas: document.querySelectorAll(".quebra-aba"),
+  quebraAbas: document.querySelectorAll("#quebra-abas-dimensao .quebra-aba"),
   rankingGerentes: document.getElementById("ranking-gerentes"),
   evolucaoGrafico: document.getElementById("evolucao-grafico"),
   // Filtro independente, só da tabela — não afeta KPIs/cards/ranking
@@ -50,7 +51,11 @@ function popularSelect(select, valores, formatar = (v) => v) {
 
 function filtrarConjunto(conjunto, campos) {
   const busca = campos.busca.value.trim().toLowerCase();
-  const unidade = campos.unidade.value;
+  // Unidade aceita dois formatos: um <select> normal (.value, string única
+  // — usado no filtro da tabela) ou o estado multi-seleção dos chips do
+  // topo (.valores, Set — vazio = "Todas").
+  const unidadeValores = campos.unidade.valores;
+  const unidadeUnica = campos.unidade.value;
   const segmento = campos.segmento.value;
   const regime = campos.regime.value;
   const depto = campos.depto.value;
@@ -59,7 +64,11 @@ function filtrarConjunto(conjunto, campos) {
   const gerente = campos.gerente.value;
 
   return conjunto.filter((r) => {
-    if (unidade && r.Unidade !== unidade) return false;
+    if (unidadeValores) {
+      if (unidadeValores.size > 0 && !unidadeValores.has(r.Unidade)) return false;
+    } else if (unidadeUnica && r.Unidade !== unidadeUnica) {
+      return false;
+    }
     if (segmento && r.Segmento !== segmento) return false;
     if (regime && r.RegimeApuracao !== regime) return false;
     if (depto && r.DeptoFiscal !== depto) return false;
@@ -93,13 +102,35 @@ function renderizarUnidadeTopo() {
       unidades.map((u) => `<button type="button" class="unidade-topo-chip" data-valor="${u.replace(/"/g, "&quot;")}">${u.toUpperCase()}</button>`)
     )
     .join("");
-  ativarFiltroClicavel(el.unidadeTopoLista.querySelectorAll(".unidade-topo-chip"), el.unidade);
+  ativarFiltroUnidadeMultiplo();
   atualizarUnidadeTopoAtiva();
+}
+
+// Diferente de ativarFiltroClicavel (usado por Tributação/Departamento/
+// Gerente, que são single-select): aqui cada clique liga/desliga aquela
+// unidade sem desmarcar as outras, permitindo comparar várias de uma vez.
+// "Todas" é um caso especial que limpa a seleção inteira.
+function ativarFiltroUnidadeMultiplo() {
+  el.unidadeTopoLista.querySelectorAll(".unidade-topo-chip").forEach((botao) => {
+    botao.addEventListener("click", () => {
+      const valor = botao.dataset.valor;
+      if (valor === "") {
+        el.unidade.valores.clear();
+      } else if (el.unidade.valores.has(valor)) {
+        el.unidade.valores.delete(valor);
+      } else {
+        el.unidade.valores.add(valor);
+      }
+      aplicarFiltros();
+    });
+  });
 }
 
 function atualizarUnidadeTopoAtiva() {
   el.unidadeTopoLista.querySelectorAll(".unidade-topo-chip").forEach((botao) => {
-    botao.classList.toggle("ativo", botao.dataset.valor === el.unidade.value);
+    const valor = botao.dataset.valor;
+    const ativo = valor === "" ? el.unidade.valores.size === 0 : el.unidade.valores.has(valor);
+    botao.classList.toggle("ativo", ativo);
   });
 }
 
@@ -159,18 +190,6 @@ function ativarFiltroClicavel(elementos, filtroEl) {
       const valor = el2.dataset.valor;
       filtroEl.value = filtroEl.value === valor ? "" : valor;
       aplicarFiltros();
-    });
-  });
-}
-
-// Marca só o elemento clicado como "selecionado" (destaque visual), sem
-// mexer nos filtros nem recalcular o restante da tela.
-function ativarSelecaoVisual(elementos) {
-  elementos.forEach((el2) => {
-    el2.addEventListener("click", () => {
-      const jaSelecionado = el2.classList.contains("selecionado");
-      elementos.forEach((e) => e.classList.remove("selecionado"));
-      if (!jaSelecionado) el2.classList.add("selecionado");
     });
   });
 }
@@ -255,13 +274,14 @@ function contarDetalhadoComSubgrupo(chavePrincipal, chaveSecundaria) {
   return [...grupos.entries()].sort((a, b) => b[1].total - a[1].total);
 }
 
-function renderizarRegimeCard(nome, s) {
+function renderizarRegimeCard(nome, s, selecionado) {
+  const ativo = nome === selecionado ? " selecionado" : "";
   const docsHtml = ORDEM_DOCUMENTACAO
     .map((docNome) => renderizarDocGrupo(docNome, s.docs.get(docNome), s.total))
     .join("");
 
   return `
-    <div class="regime-card" data-valor="${nome.replace(/"/g, "&quot;")}" title="${nome}">
+    <div class="regime-card${ativo}" data-valor="${nome.replace(/"/g, "&quot;")}" title="${nome}">
       <div class="regime-card-cabecalho">
         <div class="regime-card-nome">${nome}</div>
         <div class="regime-card-total">${s.total.toLocaleString("pt-BR")}</div>
@@ -273,16 +293,21 @@ function renderizarRegimeCard(nome, s) {
 
 const faixasAbertas = new Set();
 
-function renderizarFaixaDepto(container, chavePrincipal, chaveSecundaria, filtroPrincipal) {
+// Clicar no cabeçalho do departamento só expande/recolhe (não filtra) — pra
+// filtrar por departamento, usa o botão "Fixar". Card de regime dentro (o
+// mesmo estilo de "Por Tributação") continua filtrando (el.regime) num
+// clique direto, igual antes.
+function renderizarFaixaDepto(container, chavePrincipal, chaveSecundaria, filtroPrincipal, filtroSecundario) {
   const grupos = contarDetalhadoComSubgrupo(chavePrincipal, chaveSecundaria);
   const selecionado = filtroPrincipal.value;
+  const selecionadoSub = filtroSecundario.value;
   container.innerHTML = grupos
     .map(([nome, g]) => {
       const ativo = nome === selecionado ? " selecionado" : "";
       const aberto = faixasAbertas.has(nome);
       const cardsHtml = [...g.sub.entries()]
         .sort((a, b) => b[1].total - a[1].total)
-        .map(([subNome, s]) => renderizarRegimeCard(subNome, s))
+        .map(([subNome, s]) => renderizarRegimeCard(subNome, s, selecionadoSub))
         .join("");
 
       return `
@@ -319,7 +344,9 @@ function renderizarFaixaDepto(container, chavePrincipal, chaveSecundaria, filtro
     });
   });
 
-  // Clique no cabeçalho inteiro: só expande/recolhe (mesmo efeito da seta)
+  // Clique no cabeçalho inteiro: só expande/recolhe (mesmo efeito da seta) —
+  // diferente do card de Tributação, o clique aqui não filtra, pra não
+  // atrapalhar quem só quer abrir o departamento e ver os regimes dentro.
   container.querySelectorAll(".quebra-faixa-cabecalho").forEach((cabecalho) => {
     cabecalho.addEventListener("click", (e) => {
       if (e.target.closest(".quebra-faixa-fixar")) return;
@@ -327,7 +354,7 @@ function renderizarFaixaDepto(container, chavePrincipal, chaveSecundaria, filtro
     });
   });
 
-  // Botão "Fixar": aplica o filtro pelo departamento
+  // Botão "Fixar": único jeito de filtrar por este departamento.
   container.querySelectorAll(".quebra-faixa-fixar").forEach((botao) => {
     botao.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -337,12 +364,12 @@ function renderizarFaixaDepto(container, chavePrincipal, chaveSecundaria, filtro
     });
   });
 
-  ativarSelecaoVisual(container.querySelectorAll(".regime-card"));
+  ativarFiltroClicavel(container.querySelectorAll(".regime-card"), filtroSecundario);
 }
 
 const QUEBRA_CONFIG = {
   regime: { chave: "RegimeApuracao", filtroEl: () => el.regime },
-  depto: { chave: "DeptoFiscal", subChave: "RegimeApuracao", filtroEl: () => el.depto },
+  depto: { chave: "DeptoFiscal", subChave: "RegimeApuracao", filtroEl: () => el.depto, subFiltroEl: () => el.regime },
 };
 let abaQuebraAtiva = "regime";
 
@@ -350,7 +377,7 @@ function renderizarQuebras() {
   const cfg = QUEBRA_CONFIG[abaQuebraAtiva];
   el.quebraConteudo.classList.toggle("quebra-grid--faixas", abaQuebraAtiva === "depto");
   if (cfg.subChave) {
-    renderizarFaixaDepto(el.quebraConteudo, cfg.chave, cfg.subChave, cfg.filtroEl());
+    renderizarFaixaDepto(el.quebraConteudo, cfg.chave, cfg.subChave, cfg.filtroEl(), cfg.subFiltroEl());
   } else {
     renderizarQuebraGrupo(el.quebraConteudo, cfg.chave, cfg.filtroEl());
   }
@@ -466,29 +493,28 @@ function formatarDataCurta(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
-// Quantas empresas tiveram o fechamento confirmado (DataConfirmacao) em cada
-// dia, separado por Documentação Recebida/Pendente — vem direto da planilha
-// (cada linha já tem sua própria data), não de um histórico acumulado por
-// execução do robô. Respeita os filtros ativos (mesmo conjunto `filtrados`
-// dos cards/ranking).
+// Quantas empresas foram fechadas (DataConfirmacao) em cada dia — vem direto
+// da planilha (cada linha já tem sua própria data), não de um histórico
+// acumulado por execução do robô. Respeita os filtros ativos (mesmo
+// conjunto `filtrados` dos cards/ranking).
 function contarConfirmacoesPorDia() {
   const dias = new Map();
   filtrados.forEach((r) => {
     if (!r.DataConfirmacao) return;
     const dia = r.DataConfirmacao.slice(0, 10);
-    if (!dias.has(dia)) dias.set(dia, { data: dia, recebida: 0, pendente: 0 });
-    const d = dias.get(dia);
-    if (r["Documentação"] === "Documentação Recebida") d.recebida++;
-    else d.pendente++;
+    dias.set(dia, (dias.get(dia) || 0) + 1);
   });
-  return [...dias.values()].sort((a, b) => a.data.localeCompare(b.data));
+  return [...dias.entries()]
+    .map(([data, total]) => ({ data, total }))
+    .sort((a, b) => a.data.localeCompare(b.data));
 }
 
-// Barra empilhada por dia (SVG desenhado à mão, sem lib externa — mesmo
-// padrão do resto do portal) com quantas confirmações por dia foram feitas
-// com Documentação Recebida vs Pendente. Barra (não linha) porque é uma
-// contagem discreta por dia, não um total acumulado — a linha insinuava uma
-// continuidade entre os pontos que não existe de verdade.
+// Uma barra por dia (SVG desenhado à mão, sem lib externa — mesmo padrão do
+// resto do portal) com o total de empresas fechadas naquele dia. Barra (não
+// linha) porque é uma contagem discreta por dia, não um total acumulado — a
+// linha insinuava uma continuidade entre os pontos que não existe de
+// verdade. Todo dia do histórico mostra sua data no eixo (sem decimar
+// rótulo), a pedido do usuário.
 function renderizarEvolucao() {
   const container = el.evolucaoGrafico;
   if (!container) return;
@@ -499,12 +525,20 @@ function renderizarEvolucao() {
     return;
   }
 
-  const largura = 900, altura = 260;
-  const margemEsq = 46, margemDir = 16, margemTopo = 16, margemBaixo = 34;
+  // O viewBox usa a largura real (em px) do container em vez de um valor
+  // fixo (900) — assim 1 unidade do SVG = 1px real e o texto dos eixos
+  // (font-size em unidades do viewBox) não fica minúsculo em telas
+  // estreitas nem gigante em telas largas. Reajustado no resize (ver
+  // listener no fim do arquivo).
+  const largura = Math.max(360, Math.round(container.clientWidth || 900));
+  const altura = 380;
+  // margemTopo maior que o padrão pra sobrar espaço pro rótulo de total
+  // acima da barra mais alta (senão o texto fica colado/cortado no topo).
+  const margemEsq = 46, margemDir = 16, margemTopo = 26, margemBaixo = 34;
   const areaLargura = largura - margemEsq - margemDir;
   const areaAltura = altura - margemTopo - margemBaixo;
 
-  const maiorTotal = Math.max(1, ...historico.map((h) => h.recebida + h.pendente));
+  const maiorTotal = Math.max(1, ...historico.map((h) => h.total));
   const passoX = areaLargura / historico.length;
   const larguraBarra = passoX * 0.6;
 
@@ -516,17 +550,16 @@ function renderizarEvolucao() {
     .map((h, i) => {
       const x = coordXCentro(i) - larguraBarra / 2;
       const yBase = margemTopo + areaAltura;
-      const altRecebida = alturaBarra(h.recebida);
-      const altPendente = alturaBarra(h.pendente);
-      const yRecebida = yBase - altRecebida;
-      const yPendente = yRecebida - altPendente;
+      const alt = alturaBarra(h.total);
+      const y = yBase - alt;
+      // Rótulo com o total do dia, pra não depender de hover no tooltip
+      // pra ter uma leitura rápida da barra.
+      const rotuloTotal = `<text x="${coordXCentro(i)}" y="${y - 6}" text-anchor="middle" class="evolucao-rotulo-total">${h.total.toLocaleString("pt-BR")}</text>`;
       return `
-        <rect x="${x}" y="${yRecebida}" width="${larguraBarra}" height="${altRecebida}" class="evolucao-barra recebida">
-          <title>${formatarDataCurta(h.data)} — Documentação Recebida: ${h.recebida.toLocaleString("pt-BR")}</title>
+        <rect x="${x}" y="${y}" width="${larguraBarra}" height="${alt}" class="evolucao-barra">
+          <title>${formatarDataCurta(h.data)} — ${h.total.toLocaleString("pt-BR")} fechado(s)</title>
         </rect>
-        <rect x="${x}" y="${yPendente}" width="${larguraBarra}" height="${altPendente}" class="evolucao-barra pendente">
-          <title>${formatarDataCurta(h.data)} — Documentação Pendente: ${h.pendente.toLocaleString("pt-BR")}</title>
-        </rect>
+        ${rotuloTotal}
       `;
     })
     .join("");
@@ -541,17 +574,12 @@ function renderizarEvolucao() {
     `;
   }).join("");
 
-  // Evita amontoar rótulo de data quando há muitos dias no histórico.
-  const passoRotulo = Math.max(1, Math.ceil(historico.length / 8));
   const rotulosX = historico
-    .map((h, i) => {
-      if (i % passoRotulo !== 0 && i !== historico.length - 1) return "";
-      return `<text x="${coordXCentro(i)}" y="${altura - margemBaixo + 18}" text-anchor="middle" class="evolucao-eixo-texto">${formatarDataCurta(h.data)}</text>`;
-    })
+    .map((h, i) => `<text x="${coordXCentro(i)}" y="${altura - margemBaixo + 18}" text-anchor="middle" class="evolucao-eixo-texto">${formatarDataCurta(h.data)}</text>`)
     .join("");
 
   container.innerHTML = `
-    <svg viewBox="0 0 ${largura} ${altura}" class="evolucao-svg" role="img" aria-label="Confirmações por dia, Documentação Recebida vs Pendente">
+    <svg viewBox="0 0 ${largura} ${altura}" class="evolucao-svg" role="img" aria-label="Fechamentos por dia">
       ${grades}
       ${barras}
       ${rotulosX}
@@ -595,7 +623,7 @@ function carregarDados() {
 
 el.limpar.addEventListener("click", () => {
   el.busca.value = "";
-  el.unidade.value = "";
+  el.unidade.valores.clear();
   el.segmento.value = "";
   el.regime.value = "";
   el.depto.value = "";
@@ -626,6 +654,16 @@ const elBtnTema = document.getElementById("btn-tema");
 elBtnTema.addEventListener("click", () => {
   const escuro = document.body.classList.toggle("tema-escuro");
   elBtnTema.textContent = escuro ? "Alterar tema para Claro" : "Alterar tema para Escuro";
+});
+
+// Re-renderiza "Evolução por dia" quando a largura do container muda (ex.:
+// redimensionar a janela) — o viewBox do gráfico é calculado a partir da
+// largura real do container (ver renderizarEvolucao), então precisa
+// recalcular pra manter 1 unidade do SVG = 1px real.
+let resizeTimeout;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(renderizarEvolucao, 200);
 });
 
 carregarStatus();

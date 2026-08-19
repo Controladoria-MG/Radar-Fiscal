@@ -65,7 +65,7 @@
 
     <section class="card quebras-card" aria-label="Quebras por dimensão">
       <div class="quebra-cabecalho-secao">
-        <div class="quebra-abas" role="tablist">
+        <div class="quebra-abas" id="quebra-abas-dimensao" role="tablist">
           <button type="button" class="quebra-aba ativa" data-aba="regime" role="tab" aria-selected="true">Por Tributação</button>
           <button type="button" class="quebra-aba" data-aba="depto" role="tab" aria-selected="false">Por Departamento</button>
         </div>
@@ -73,15 +73,11 @@
       <div class="quebra-grid" id="quebra-conteudo"></div>
     </section>
 
-    <section class="card evolucao-card" aria-label="Evolução por dia">
+    <section class="card evolucao-card" aria-label="Evolução Diária">
       <div class="quebra-cabecalho-secao">
         <div>
-          <h2 class="quebra-titulo">Evolução por dia</h2>
-          <p class="evolucao-subtitulo">Empresas confirmadas por dia (Data de Confirmação)</p>
-        </div>
-        <div class="quebra-legenda-fixa">
-          <span class="item"><i class="ponto recebida"></i>Documentação Recebida</span>
-          <span class="item"><i class="ponto pendente"></i>Documentação Pendente</span>
+          <h2 class="quebra-titulo">Evolução Diária</h2>
+          <p class="evolucao-subtitulo">Empresas fechadas por dia</p>
         </div>
       </div>
       <div class="evolucao-grafico" id="evolucao-grafico"></div>
