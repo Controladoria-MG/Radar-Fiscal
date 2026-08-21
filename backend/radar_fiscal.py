@@ -13,6 +13,7 @@ import win32gui
 import win32process
 from dotenv import load_dotenv
 from pywinauto import Application
+from pywinauto.keyboard import send_keys
 
 RAIZ = Path(__file__).parent.parent
 load_dotenv(RAIZ / ".env")
@@ -263,14 +264,34 @@ def _fechar_dialogo_se_existir(titulo: str, botao: str, timeout: float = 3) -> b
 
 # ── Passos do fluxo ──────────────────────────────────────────────────────────
 
-def _abrir_mgapps(log=None):
+def _fechar_mgapps_se_existir(log=None):
+    """Fecha a janela 'MG Apps' se já estiver aberta (execução anterior que
+    não chegou a fechar, crash, ou o usuário abriu manualmente) — a
+    automação sempre começa do zero em vez de reaproveitar uma janela com
+    estado desconhecido (ex.: estacionada fora da tela por _ocultar_janela
+    numa execução anterior que travou no meio, ou numa tela/diálogo
+    inesperado), que foi a origem de falhas em cascata vistas ao vivo
+    (2026-08-21: reaproveitar um MGApps 'preso' de uma execução que crashou
+    fez o clique no tile 'Sistema de Analise' falhar repetidamente). Mesmo
+    padrão que _fechar_analise_balanco_se_existir() usa no projeto
+    Analise-de-Balanco."""
     try:
         handle = _janela_por_titulo("MG Apps", timeout=2)
-        _log("MGApps já estava aberto, reaproveitando janela...", log)
     except TimeoutError:
-        _log("Abrindo MGApps...", log)
-        subprocess.Popen([MGAPPS_EXE])
-        handle = _janela_por_titulo("MG Apps", timeout=20)
+        return
+    _log("MGApps já estava aberto — fechando para começar do zero...", log)
+    try:
+        _conectar(handle).close()
+    except Exception:
+        pass
+    time.sleep(1)
+
+
+def _abrir_mgapps(log=None):
+    _fechar_mgapps_se_existir(log)
+    _log("Abrindo MGApps...", log)
+    subprocess.Popen([MGAPPS_EXE])
+    handle = _janela_por_titulo("MG Apps", timeout=20)
     mgapps = _conectar(handle)
     mgapps.restore()
     mgapps.set_focus()
@@ -360,8 +381,23 @@ def _exportar_excel(radar, caminho_destino: Path, log=None):
     if caminho_destino.exists():
         caminho_destino.unlink()
 
-    _invocar(radar, title="Arquivo", control_type="MenuItem")
-    popup = _localizar_popup_menu()
+    # O menu "Arquivo" às vezes não abre o popup a tempo no primeiro invoke
+    # (visto ao vivo em 2026-08-21, reproduzido 2 de 2 vezes) — retry com ESC
+    # entre tentativas pra fechar qualquer dropdown que tenha ficado parcialmente
+    # aberto, mesmo padrão já usado em _exportar() no projeto Analise-de-Balanco
+    # (backend/radar_fechamento.py).
+    popup = None
+    for tentativa in range(1, 4):
+        send_keys("{ESC}")
+        time.sleep(0.3)
+        _invocar(radar, title="Arquivo", control_type="MenuItem")
+        try:
+            popup = _localizar_popup_menu()
+            break
+        except TimeoutError:
+            _log(f"Menu 'Arquivo' não abriu (tentativa {tentativa}/3), tentando de novo...", log)
+    if popup is None:
+        raise TimeoutError("Não foi possível abrir o menu 'Arquivo' após 3 tentativas.")
     _clicar_item_do_menu(popup, indice=0)  # "Exportar para Excel" é o 1º item (índice 0)
 
     confirmar_handle = _janela_por_titulo("Sistema de Analise", timeout=TIMEOUT_EXPORTACAO)
@@ -593,24 +629,34 @@ def _gerar_json_portal(df: pd.DataFrame) -> None:
 
 def executar(log=None):
     mgapps = _abrir_mgapps(log)
-    _abrir_sistema_analise(mgapps, log)
-    _login_sistema_analise(log)
-    fiscal = _abrir_importacao_fiscal(log)
+    # Tudo que abre uma tela do "Sistema de Analise" fica dentro deste
+    # try/finally — se qualquer passo falhar no meio (ex.: o menu "Arquivo"
+    # não abrir a tempo), o finally garante que Menu/Departamento Fiscal/
+    # Radar/Controle de Análise Fechamento Escrita Fiscal são fechados mesmo
+    # assim, em vez de ficarem abertos travando a próxima execução (bug real
+    # visto ao vivo em 2026-08-21, rodando em sequência com a Análise de
+    # Balanço via o orquestrador do Relatório de Fechamentos — mesmo
+    # raciocínio que já protegia "Análise de Balanço" lá com seu próprio
+    # try/finally).
+    try:
+        _abrir_sistema_analise(mgapps, log)
+        _login_sistema_analise(log)
+        fiscal = _abrir_importacao_fiscal(log)
 
-    radar = _abrir_radar_fiscal(fiscal, log)
-    _filtrar(radar, log)
-    _exportar_excel(radar, ARQUIVO_SAIDA, log)
-    _copiar_para_rede(ARQUIVO_SAIDA, ARQUIVO_REDE_RADAR, log)
-    _fechar_janela_se_existir("Radar")
+        radar = _abrir_radar_fiscal(fiscal, log)
+        _filtrar(radar, log)
+        _exportar_excel(radar, ARQUIVO_SAIDA, log)
+        _copiar_para_rede(ARQUIVO_SAIDA, ARQUIVO_REDE_RADAR, log)
+        _fechar_janela_se_existir("Radar")
 
-    mercados = _abrir_controle_status(fiscal, log)
-    _limpar_filtro_mercados(mercados, log)
-    _marcar_unidades(mercados, UNIDADES_MERCADOS, log)
-    _filtrar_mercados(mercados, log)
-    _exportar_planilha_mercados(mercados, ARQUIVO_MERCADOS, log)
-    _copiar_para_rede(ARQUIVO_MERCADOS, ARQUIVO_REDE_MERCADOS, log)
-
-    _fechar_sistema_analise(log)
+        mercados = _abrir_controle_status(fiscal, log)
+        _limpar_filtro_mercados(mercados, log)
+        _marcar_unidades(mercados, UNIDADES_MERCADOS, log)
+        _filtrar_mercados(mercados, log)
+        _exportar_planilha_mercados(mercados, ARQUIVO_MERCADOS, log)
+        _copiar_para_rede(ARQUIVO_MERCADOS, ARQUIVO_REDE_MERCADOS, log)
+    finally:
+        _fechar_sistema_analise(log)
 
     df_radar = pd.read_excel(ARQUIVO_SAIDA)
     df_mercados = pd.read_excel(ARQUIVO_MERCADOS, sheet_name="Gerencial")
